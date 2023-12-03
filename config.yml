@@ -1,0 +1,20 @@
+---
+
+- hosts: all
+  become: true
+  pre_tasks:
+
+  - name: Dpkg fixing in Ubuntu Servers
+    shell: dpkg --configure -a
+
+  - name: Update and Upgrade remote in Ubuntu servers
+    apt:
+      update_cache: yes
+      upgrade: yes
+
+- hosts: controller
+  become: true
+  roles:
+    - CINDER
+    - HORIZON
+    - NEUTRON

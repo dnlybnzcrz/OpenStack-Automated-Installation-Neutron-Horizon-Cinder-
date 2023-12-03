@@ -1,0 +1,175 @@
+#CINDER-CONTROLLER-INSTALLATION-UBUNTU
+- name: Install Cinder and dependencies
+  apt:
+    name:
+      - cinder-api
+      - cinder-scheduler
+      - cinder-volume
+      - python3-cinderclient
+      - lvm2
+
+- name: Configuring Database for Cinder
+  copy:
+    dest: /etc/cinder/cinder.conf
+    content: |
+              [database]
+              connection = mysql+pymysql://cinder:1234@controller/cinder
+
+- name: Configuring RabbitMQ (Message Queue)
+  copy:
+    dest: /etc/cinder/cinder.conf
+    content: |
+              [DEFAULT]
+              transport_url = rabbit://openstack:1234@controller
+
+- name: Configuring Identity Services
+  copy:
+    dest: /etc/cinder/cinder.conf
+    content: |
+              [DEFAULT]
+              auth_strategy = keystone
+              [keystone_authtoken]
+              www_authenticate_uri = http://controller:5000
+              auth_url = http://controller:5000
+              memcached_servers = controller:11211
+              auth_type = password
+              project_domain_name = default
+              user_domain_name = default
+              project_name = service
+              username = cinder
+              password = 1234
+
+- name: Configuring my_ip option to use the management interface IP add of controller node
+  copy:
+    dest: /etc/cinder/cinder.conf
+    content: |
+              [DEFAULT]
+              my_ip = 192.168.56.103
+
+- name: Configure the lock path in oslo section
+  copy:
+    dest: /etc/cinder/cinder.conf
+    content: |
+              [oslo_concurrency]
+              lock_path = /var/lib/cinder/tmp
+
+- name: Populate the Block Storage database
+  shell: su -s /bin/sh -c "cinder-manage db sync" cinder
+
+- name: Adding the following line for block storage
+  copy:
+    dest: /etc/nova/nova.conf
+    content: |
+              [cinder]
+              os_region_name = RegionOne
+
+- name: Re-installing Nova-api
+  apt:
+    name:
+      - nova-api
+      - nova-scheduler
+      - python3-novaclient
+      - python3-nova
+    state: present
+
+- name: Restarting Nova api
+  service:
+    name: nova-api
+    state: restarted
+
+- name: Restarting Cinder Scheduler
+  service:
+    name: cinder-scheduler
+    state: restarted
+
+- name: Restarting Apache2
+  service:
+    name: apache2
+    state: restarted
+
+#CINDER-STORAGE-INSTALLATION-UBUNTU
+
+- name: Install the supporting utility packages
+  apt:
+    name:
+       - lvm2
+       - thin-provisioning-tools
+
+- name: Creating the LVM physical volume /dev/sdb
+  file:
+    path: /dev/sdb
+    state: directory
+
+- name: Create the LVM volume group cinder-volume
+  shell: sudo touch cinder-volumes /dev/sdb
+
+- name: Installing the packages for cinder storage node
+  apt:
+    name:
+       - cinder-volume
+       - tgt
+
+- name: Configuring the LVM backend with the LVM driver
+  copy:
+    dest: /etc/cinder/cinder.conf
+    content: |
+              [lvm]
+              volume_driver = cinder.volume.drivers.lvm.LVMVolumeDriver
+              volume_group = cinder-volumes
+              target_protocol = iscsi
+              target_helper = tgtadm
+
+- name: Enabling the LVM backend
+  copy:
+    dest: /etc/cinder/cinder.conf
+    content: |
+              [DEFAULT]
+              enabled_backends = lvm
+
+- name: Configuring the location of the image service API
+  copy:
+    dest: /etc/cinder/cinder.conf
+    content: |
+              [DEFAULT]
+              glance_api_servers = http://controller:9292
+
+- name: Configuring the lock path
+  copy:
+    dest: /etc/cinder/cinder.conf
+    content: |
+              [oslo_concurrency]
+              lock_path = /var/lib/cinder/tmp
+
+- name: Restarting tgt (Block Storage service including its dependencies)
+  service:
+    name: tgt
+    state: restarted
+
+- name: Restarting Cinder Volume service
+  service:
+    name: cinder-volume
+    state: restarted
+
+#CINDER-BACKUP-INSTALLATION-UBUNTU
+
+- name: Install the packages for cinder backup service
+  apt:
+    name: cinder-backup
+
+- name: Configuring the backup options
+  copy:
+    dest: /etc/cinder/cinder.conf
+    content: |
+              [DEFAULT]
+              backup_driver = cinder.backup.drivers.swift
+              backup_swift_url = SWIFT_URL
+
+- name: Restarting Cinder-Backup
+  service:
+    name: cinder-backup
+    state: restarted
+
+- block:
+  - name: Verifying the cinder-backup.
+    shell: systemctl status cinder-backup
+    register: cinder_service
