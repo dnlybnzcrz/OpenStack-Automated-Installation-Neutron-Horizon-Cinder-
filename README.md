@@ -1,1 +1,1 @@
-# HOA15.1
+# OpenStack Installation (Neutron, Horizon, Cinder)
